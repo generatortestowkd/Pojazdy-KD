@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronDown, LogOut, Plus, Trash2 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc, setDoc, getDoc } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDPENv7EmaYfmg_Zkvz7eHmG47aQ_beh_8",
@@ -127,17 +127,6 @@ function getTodayDate() {
   return `${day}.${month}.${year}`;
 }
 
-function getLastAddedVehicles(vehicles, count = 5) {
-  return Object.entries(vehicles)
-    .sort((a, b) => {
-      const dateA = new Date(a[1].dateAdded || '2026-01-01');
-      const dateB = new Date(b[1].dateAdded || '2026-01-01');
-      return dateB - dateA;
-    })
-    .slice(0, count)
-    .map(([id]) => id);
-}
-
 // ===== MAIN APP =====
 export default function App() {
   const [selectedVehicle, setSelectedVehicle] = useState('');
@@ -146,8 +135,9 @@ export default function App() {
   const [vehicles, setVehicles] = useState({});
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(getTodayDate());
-  const [lastAddedVehicles, setLastAddedVehicles] = useState([]);
-  
+  const [lastAddedText, setLastAddedText] = useState('');
+  const [lastAddedInput, setLastAddedInput] = useState('');
+
   const [newVehicle, setNewVehicle] = useState({
     id: '',
     inv: '',
@@ -159,12 +149,29 @@ export default function App() {
 
   useEffect(() => {
     initializeVehicles();
+    loadSettings();
   }, []);
+
+  const loadSettings = async () => {
+    try {
+      const settingsDoc = await getDoc(doc(db, 'settings', 'info'));
+      if (settingsDoc.exists()) {
+        const data = settingsDoc.data();
+        if (data.lastUpdated) setLastUpdated(data.lastUpdated);
+        if (data.lastAddedText) {
+          setLastAddedText(data.lastAddedText);
+          setLastAddedInput(data.lastAddedText);
+        }
+      }
+    } catch (error) {
+      console.error('Błąd przy ładowaniu ustawień:', error);
+    }
+  };
 
   const initializeVehicles = async () => {
     try {
       const querySnapshot = await getDocs(collection(db, 'vehicles'));
-      
+
       if (querySnapshot.empty) {
         await addAllVehicles();
       } else {
@@ -180,8 +187,6 @@ export default function App() {
           };
         });
         setVehicles(vehiclesData);
-        setLastAddedVehicles(getLastAddedVehicles(vehiclesData));
-        setLastUpdated(getTodayDate());
       }
     } catch (error) {
       console.error('Błąd przy ładowaniu:', error);
@@ -193,8 +198,8 @@ export default function App() {
   const addAllVehicles = async () => {
     try {
       for (const [id, data] of Object.entries(defaultVehicles)) {
-        await addDoc(collection(db, 'vehicles'), { 
-          id, 
+        await addDoc(collection(db, 'vehicles'), {
+          id,
           inv: data.inv,
           len: data.len,
           own: data.own,
@@ -204,8 +209,6 @@ export default function App() {
         });
       }
       setVehicles(defaultVehicles);
-      setLastAddedVehicles(getLastAddedVehicles(defaultVehicles));
-      setLastUpdated(getTodayDate());
     } catch (error) {
       console.error('Błąd przy dodawaniu pojazdów:', error);
     } finally {
@@ -244,6 +247,11 @@ export default function App() {
         dateAdded: today
       });
 
+      await setDoc(doc(db, 'settings', 'info'), {
+        lastUpdated: today,
+        lastAddedText: lastAddedText
+      }, { merge: true });
+
       const updatedVehicles = {
         ...vehicles,
         [newVehicle.id]: {
@@ -257,10 +265,25 @@ export default function App() {
       };
 
       setVehicles(updatedVehicles);
-      setLastAddedVehicles(getLastAddedVehicles(updatedVehicles));
       setLastUpdated(today);
       setNewVehicle({ id: '', inv: '', len: '', own: '', brk: '', tot: '' });
       alert('Pojazd dodany! Data aktualizacji zmieniona automatycznie.');
+    } catch (error) {
+      alert('Błąd: ' + error.message);
+    }
+  };
+
+  const handleSaveLastAdded = async (e) => {
+    e.preventDefault();
+    const today = getTodayDate();
+    try {
+      await setDoc(doc(db, 'settings', 'info'), {
+        lastAddedText: lastAddedInput,
+        lastUpdated: today
+      }, { merge: true });
+      setLastAddedText(lastAddedInput);
+      setLastUpdated(today);
+      alert('Zapisano informację o ostatnio dodanych pojazdach!');
     } catch (error) {
       alert('Błąd: ' + error.message);
     }
@@ -279,7 +302,6 @@ export default function App() {
         const newVehicles = { ...vehicles };
         delete newVehicles[vehicleId];
         setVehicles(newVehicles);
-        setLastAddedVehicles(getLastAddedVehicles(newVehicles));
       } catch (error) {
         alert('Błąd: ' + error.message);
       }
@@ -307,10 +329,7 @@ export default function App() {
               <div className="text-center mb-4 sm:mb-6">
                 <p className="text-xs sm:text-sm text-green-700 font-medium">Ostatnia aktualizacja: {lastUpdated}</p>
                 <p className="text-xs sm:text-sm text-green-600 mt-1">
-                  {lastAddedVehicles.length > 0 
-                    ? `Ostatnio dodane: ${lastAddedVehicles.join(', ')}`
-                    : 'Brak ostatnio dodanych'
-                  }
+                  {lastAddedText ? `Ostatnio dodane: ${lastAddedText}` : 'Brak ostatnio dodanych'}
                 </p>
               </div>
 
@@ -411,6 +430,14 @@ export default function App() {
                     <input type="text" placeholder="Masa hamująca (np. 358t)" value={newVehicle.brk} onChange={(e) => setNewVehicle({...newVehicle, brk: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm" />
                     <input type="text" placeholder="Masa ogólna (np. 201t)" value={newVehicle.tot} onChange={(e) => setNewVehicle({...newVehicle, tot: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm" />
                     <button type="submit" className="w-full flex items-center justify-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold py-2 rounded-lg transition-colors"><Plus size={18} /> Dodaj pojazd</button>
+                  </form>
+                </div>
+
+                <div className="bg-green-50 rounded-xl p-4 border-2 border-green-600">
+                  <h3 className="text-xl font-bold text-green-800 mb-4">Ostatnio dodane pojazdy (widoczne na stronie głównej)</h3>
+                  <form onSubmit={handleSaveLastAdded} className="space-y-3">
+                    <textarea placeholder="np. 48WEc-062 do 48WEc-063" value={lastAddedInput} onChange={(e) => setLastAddedInput(e.target.value)} rows={2} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm" />
+                    <button type="submit" className="w-full bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold py-2 rounded-lg transition-colors">Zapisz</button>
                   </form>
                 </div>
 

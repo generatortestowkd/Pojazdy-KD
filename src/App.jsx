@@ -16,6 +16,57 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+// ===== MASA WŁASNA (wg wykazu KD, stan na 2026.08.25) =====
+// Pole "own" w bazie to MASA SŁUŻBOWA.
+// Masa własna jest podana tylko na części pojazdów – tutaj są wartości domyślne
+// dla pojazdów, które są już w bazie (używane, gdy dokument w Firestore nie ma pola "wlasna").
+const masaWlasnaDefaults = {
+  'SA106-011': '50t',
+  'SA132-002': '76t',
+  'SA134-001': '76t',
+  'SA134-002': '76t',
+  'SA134-003': '76t',
+  'SA134-004': '76t',
+  'SA134-005': '76t',
+  'SA134-006': '76t',
+  'SA134-007': '76t',
+  'SA134-023': '76t',
+  'SA134-024': '76t',
+  'SA134-025': '76t',
+  'SA135-001': '44t',
+  'SA135-002': '44t',
+  'SA135-003': '44t',
+  'SA135-004': '44t',
+  'SA135-005': '44t',
+  'SA135-006': '44t',
+  'SA135-007': '44t',
+  'SA135-008': '44t',
+  'SA135-009': '44t',
+  '31WE-001': '135t',
+  '31WE-002': '135t',
+  '31WE-003': '135t',
+  '31WE-004': '135t',
+  '31WE-005': '135t',
+  'EN57 AKD-1937': '127.1t',
+  'EN57 AL-1542': '130t',
+};
+
+// ===== NOWE POJAZDY: 48WEc-062 do 48WEc-071 (wg wykazu KD, stan na 2026.08.25) =====
+// Dodawane automatycznie do bazy przy pierwszym uruchomieniu nowej wersji (tylko te, których jeszcze nie ma).
+const MIGRATION_48WEC_062_071 = 'added_48WEc_062_071';
+const newVehicles48WEc = {
+  '48WEc-062': { inv: ['94512142087-7', '94512142088-5', '94512142089-3', '94512142090-1', '94512142091-9'], len: '90.53m', own: '169t', brk: '358t', tot: '201t', dateAdded: '26.09.2026' },
+  '48WEc-063': { inv: ['94512142472-1', '94512142473-9', '94512142474-7', '94512142475-4', '94512142476-2'], len: '90.53m', own: '169t', brk: '358t', tot: '201t', dateAdded: '26.09.2026' },
+  '48WEc-064': { inv: ['94512142477-0', '94512142478-8', '94512142479-6', '94512142480-4', '94512142481-2'], len: '90.53m', own: '169t', brk: '358t', tot: '201t', dateAdded: '26.09.2026' },
+  '48WEc-065': { inv: ['94512142482-0', '94512142483-8', '94512142484-6', '94512142485-3', '94512142486-1'], len: '90.53m', own: '169t', brk: '358t', tot: '201t', dateAdded: '26.09.2026' },
+  '48WEc-066': { inv: ['94512142487-9', '94512142488-7', '94512142489-5', '94512142490-3', '94512142491-1'], len: '90.53m', own: '169t', brk: '358t', tot: '201t', dateAdded: '26.09.2026' },
+  '48WEc-067': { inv: ['94512142452-3', '94512142453-1', '94512142454-9', '94512142455-6', '94512142456-4'], len: '90.53m', own: '169t', brk: '358t', tot: '201t', dateAdded: '26.09.2026' },
+  '48WEc-068': { inv: ['94512142457-2', '94512142458-0', '94512142459-8', '94512142460-6', '94512142461-4'], len: '90.53m', own: '169t', brk: '358t', tot: '201t', dateAdded: '26.09.2026' },
+  '48WEc-069': { inv: ['94512142462-2', '94512142463-0', '94512142464-8', '94512142465-5', '94512142466-3'], len: '90.53m', own: '169t', brk: '358t', tot: '201t', dateAdded: '26.09.2026' },
+  '48WEc-070': { inv: ['94512142467-1', '94512142468-9', '94512142469-7', '94512142470-5', '94512142471-3'], len: '90.53m', own: '169t', brk: '358t', tot: '201t', dateAdded: '26.09.2026' },
+  '48WEc-071': { inv: ['94512142442-4', '94512142443-2', '94512142444-0', '94512142445-7', '94512142446-5'], len: '90.53m', own: '169t', brk: '358t', tot: '201t', dateAdded: '26.09.2026' },
+};
+
 // ===== DEFAULTOWE POJAZDY =====
 const defaultVehicles = {
   '48WEc-024': { inv: ['94512141698-2', '94512141699-0', '94512141700-6', '94512141701-4', '94512141702-2'], len: '90.53m', own: '169t', brk: '358t', tot: '201t', dateAdded: '2026-01-01' },
@@ -116,6 +167,7 @@ const defaultVehicles = {
   'EN57 AL-1501': { inv: ['94512122301-6', '94512122302-4', '94512122303-2'], len: '64.62m', own: '132t', brk: '161t', tot: '147t', dateAdded: '2026-01-01' },
   'EN57 AL-1542': { inv: ['94512122370-1', '94512122371-9', '94512122379-7'], len: '64.62m', own: '130.6t', brk: '161t', tot: '147t', dateAdded: '2026-01-01' },
   'EN57 AL-1938': { inv: ['94512130333-9', '94512130334-7', '94512130335-4'], len: '63.97m', own: '127t', brk: '161t', tot: '145t', dateAdded: '2026-01-01' },
+  ...newVehicles48WEc,
 };
 
 // ===== HELPER FUNCTIONS =====
@@ -125,6 +177,17 @@ function getTodayDate() {
   const month = String(today.getMonth() + 1).padStart(2, '0');
   const year = today.getFullYear();
   return `${day}.${month}.${year}`;
+}
+
+// Zwraca masę własną pojazdu: z bazy, a jeśli w bazie nie ma pola – z wartości domyślnych
+function resolveWlasna(id, data) {
+  if (data && data.wlasna !== undefined && data.wlasna !== null) return data.wlasna;
+  return masaWlasnaDefaults[id] || '';
+}
+
+// Sprawdza, czy wartość masy jest faktycznie podana (np. "76t", a nie puste pole)
+function hasValue(v) {
+  return v !== undefined && v !== null && String(v).trim() !== '' && !isNaN(parseFloat(v));
 }
 
 // ===== MAIN APP =====
@@ -142,14 +205,18 @@ export default function App() {
     id: '',
     inv: '',
     len: '',
+    wlasna: '',
     own: '',
     brk: '',
     tot: ''
   });
 
   useEffect(() => {
-    initializeVehicles();
-    loadSettings();
+    const start = async () => {
+      await initializeVehicles();
+      await loadSettings();
+    };
+    start();
   }, []);
 
   const loadSettings = async () => {
@@ -168,25 +235,74 @@ export default function App() {
     }
   };
 
+  // Jednorazowe dopisanie do bazy pojazdów 48WEc-062 do 48WEc-071
+  // (dodaje tylko te, których jeszcze nie ma; drugi raz już się nie uruchomi)
+  const runMigration48WEc = async (vehiclesData) => {
+    try {
+      const settingsRef = doc(db, 'settings', 'info');
+      const settingsDoc = await getDoc(settingsRef);
+      const settings = settingsDoc.exists() ? settingsDoc.data() : {};
+      if (settings[MIGRATION_48WEC_062_071]) return vehiclesData;
+
+      const updated = { ...vehiclesData };
+      let addedAny = false;
+      for (const [id, data] of Object.entries(newVehicles48WEc)) {
+        if (updated[id]) continue;
+        const today = getTodayDate();
+        await addDoc(collection(db, 'vehicles'), {
+          id,
+          inv: data.inv,
+          len: data.len,
+          wlasna: '',
+          own: data.own,
+          brk: data.brk,
+          tot: data.tot,
+          dateAdded: today
+        });
+        updated[id] = { ...data, wlasna: '', dateAdded: today };
+        addedAny = true;
+      }
+
+      const today = getTodayDate();
+      const newSettings = { [MIGRATION_48WEC_062_071]: true };
+      if (addedAny) {
+        newSettings.lastUpdated = today;
+        newSettings.lastAddedText = '48WEc-062 do 48WEc-071';
+        setLastUpdated(today);
+        setLastAddedText(newSettings.lastAddedText);
+        setLastAddedInput(newSettings.lastAddedText);
+      }
+      await setDoc(settingsRef, newSettings, { merge: true });
+      return updated;
+    } catch (error) {
+      console.error('Błąd przy dodawaniu pojazdów 48WEc-062 do 071:', error);
+      return vehiclesData;
+    }
+  };
+
   const initializeVehicles = async () => {
     try {
       const querySnapshot = await getDocs(collection(db, 'vehicles'));
 
       if (querySnapshot.empty) {
         await addAllVehicles();
+        await setDoc(doc(db, 'settings', 'info'), { [MIGRATION_48WEC_062_071]: true }, { merge: true });
       } else {
         const vehiclesData = {};
         querySnapshot.forEach((docSnapshot) => {
-          vehiclesData[docSnapshot.data().id] = {
-            inv: docSnapshot.data().inv,
-            len: docSnapshot.data().len,
-            own: docSnapshot.data().own,
-            brk: docSnapshot.data().brk,
-            tot: docSnapshot.data().tot,
-            dateAdded: docSnapshot.data().dateAdded || '2026-01-01'
+          const d = docSnapshot.data();
+          vehiclesData[d.id] = {
+            inv: d.inv,
+            len: d.len,
+            wlasna: resolveWlasna(d.id, d),
+            own: d.own,
+            brk: d.brk,
+            tot: d.tot,
+            dateAdded: d.dateAdded || '2026-01-01'
           };
         });
-        setVehicles(vehiclesData);
+        const withNew = await runMigration48WEc(vehiclesData);
+        setVehicles(withNew);
       }
     } catch (error) {
       console.error('Błąd przy ładowaniu:', error);
@@ -197,18 +313,22 @@ export default function App() {
 
   const addAllVehicles = async () => {
     try {
+      const withWlasna = {};
       for (const [id, data] of Object.entries(defaultVehicles)) {
+        const wlasna = masaWlasnaDefaults[id] || '';
         await addDoc(collection(db, 'vehicles'), {
           id,
           inv: data.inv,
           len: data.len,
+          wlasna,
           own: data.own,
           brk: data.brk,
           tot: data.tot,
           dateAdded: data.dateAdded || '2026-01-01'
         });
+        withWlasna[id] = { ...data, wlasna };
       }
-      setVehicles(defaultVehicles);
+      setVehicles(withWlasna);
     } catch (error) {
       console.error('Błąd przy dodawaniu pojazdów:', error);
     } finally {
@@ -241,6 +361,7 @@ export default function App() {
         id: newVehicle.id,
         inv: invArray,
         len: newVehicle.len,
+        wlasna: newVehicle.wlasna,
         own: newVehicle.own,
         brk: newVehicle.brk,
         tot: newVehicle.tot,
@@ -257,6 +378,7 @@ export default function App() {
         [newVehicle.id]: {
           inv: invArray,
           len: newVehicle.len,
+          wlasna: newVehicle.wlasna,
           own: newVehicle.own,
           brk: newVehicle.brk,
           tot: newVehicle.tot,
@@ -266,7 +388,7 @@ export default function App() {
 
       setVehicles(updatedVehicles);
       setLastUpdated(today);
-      setNewVehicle({ id: '', inv: '', len: '', own: '', brk: '', tot: '' });
+      setNewVehicle({ id: '', inv: '', len: '', wlasna: '', own: '', brk: '', tot: '' });
       alert('Pojazd dodany! Data aktualizacji zmieniona automatycznie.');
     } catch (error) {
       alert('Błąd: ' + error.message);
@@ -308,12 +430,19 @@ export default function App() {
     }
   };
 
+  // Masa ładunku = masa ogólna – masa własna
+  // (jeżeli masa własna nie jest podana na pojeździe, liczymy od masy służbowej)
   const calc = (v) => {
     const d = vehicles[v];
-    return (parseFloat(d.tot) - parseFloat(d.own)).toFixed(1) + 't';
+    const base = hasValue(d.wlasna) ? d.wlasna : d.own;
+    return (parseFloat(d.tot) - parseFloat(base)).toFixed(1) + 't';
   };
 
   const sel = vehicles[selectedVehicle];
+  const selHasWlasna = sel ? hasValue(sel.wlasna) : false;
+  const selHasSluzbowa = sel ? hasValue(sel.own) : false;
+  const selHasBoth = selHasWlasna && selHasSluzbowa;
+  const selOnlySluzbowa = !selHasWlasna && selHasSluzbowa;
 
   if (loading) {
     return <div className="min-h-screen bg-green-800 flex items-center justify-center"><p className="text-white">Ładowanie pojazdów...</p></div>;
@@ -325,7 +454,7 @@ export default function App() {
         <div className="bg-white/95 backdrop-blur-lg rounded-2xl shadow-2xl p-4 sm:p-6 border-4 border-yellow-400">
           {!isAdmin ? (
             <>
-              <h1 className="text-2xl sm:text-3xl font-bold text-green-800 mb-2 sm:mb-3 text-center">Przegladarka Pojazdow Kolejowych</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold text-green-800 mb-2 sm:mb-3 text-center">Przeglądarka Pojazdów Kolejowych</h1>
               <div className="text-center mb-4 sm:mb-6">
                 <p className="text-xs sm:text-sm text-green-700 font-medium">Ostatnia aktualizacja: {lastUpdated}</p>
                 <p className="text-xs sm:text-sm text-green-600 mt-1">
@@ -368,39 +497,76 @@ export default function App() {
                       })}
                     </div>
                   </div>
+                  {selHasBoth && (
+                    <div className="bg-red-100 border-2 border-red-600 rounded-lg px-3 py-2 text-center">
+                      <p className="text-red-700 font-extrabold text-sm sm:text-base">
+                        Na dokumencie R-7 (erce) wpisujemy masę własną!
+                      </p>
+                      <p className="text-red-700 text-xs mt-1">
+                        W przypadku, kiedy występuje zarówno masa własna, jak i masa służbowa, zawsze wpisujemy masę własną.
+                      </p>
+                    </div>
+                  )}
+                  {selOnlySluzbowa && (
+                    <div className="bg-red-100 border-2 border-red-600 rounded-lg px-3 py-2 text-center">
+                      <p className="text-red-700 font-extrabold text-sm sm:text-base">
+                        Na dokumencie R-7 (erce) wpisujemy masę służbową!
+                      </p>
+                      <p className="text-red-700 text-xs mt-1">
+                        Ze względu na brak masy własnej w polu z masą własną należy wpisać masę służbową!
+                      </p>
+                    </div>
+                  )}
                   <div className="bg-green-50 rounded-xl p-4 border-2 border-green-600">
                     <h2 className="text-xl font-bold text-green-800 mb-3">Parametry pojazdu:</h2>
                     <table className="w-full text-green-900 text-sm">
                       <thead>
                         <tr className="bg-yellow-400 border-b-2 border-green-600">
-                          <th className="text-left py-2 px-2 text-green-900 font-bold">Parameter</th>
-                          <th className="text-right py-2 px-2 text-green-900 font-bold">Wartosc</th>
+                          <th className="text-left py-2 px-2 text-green-900 font-bold">Parametr</th>
+                          <th className="text-right py-2 px-2 text-green-900 font-bold">Wartość</th>
                         </tr>
                       </thead>
                       <tbody>
                         <tr className="border-b border-green-300">
-                          <td className="py-2 px-2">Dlugosc pojazdu</td>
+                          <td className="py-2 px-2">Długość pojazdu</td>
                           <td className="text-right py-2 px-2 font-bold">{sel.len}</td>
                         </tr>
                         <tr className="border-b border-green-300">
-                          <td className="py-2 px-2">Masa ladunku</td>
-                          <td className="text-right py-2 px-2 font-bold">{calc(selectedVehicle)}</td>
+                          <td className="py-2 px-2">
+                            Masa ogólna
+                            <span className="block text-xs italic text-green-700">(nie jest wpisywana na dokumencie)</span>
+                          </td>
+                          <td className="text-right py-2 px-2 font-bold">{hasValue(sel.tot) ? sel.tot : '–'}</td>
                         </tr>
                         <tr className="border-b border-green-300">
-                          <td className="py-2 px-2">Masa wlasna pojazdu</td>
-                          <td className="text-right py-2 px-2 font-bold">{sel.own}</td>
+                          <td className="py-2 px-2">
+                            Masa ładunku
+                            <span className="block text-xs italic text-green-700">(różnica między masą ogólną (brutto) a masą własną lub służbową)</span>
+                          </td>
+                          <td className="text-right py-2 px-2 font-bold">{calc(selectedVehicle)}</td>
                         </tr>
+                        <tr className={`border-b border-green-300 ${selHasBoth ? 'bg-red-50' : ''}`}>
+                          <td className={`py-2 px-2 ${selHasBoth ? 'font-bold text-red-700' : ''}`}>Masa własna pojazdu</td>
+                          <td className={`text-right py-2 px-2 font-bold ${selHasBoth ? 'text-red-700' : ''}`}>{selHasWlasna ? sel.wlasna : '–'}</td>
+                        </tr>
+                        {selHasSluzbowa && (
+                          <tr className={`border-b border-green-300 ${selOnlySluzbowa ? 'bg-red-50' : ''}`}>
+                            <td className={`py-2 px-2 ${selOnlySluzbowa ? 'font-bold text-red-700' : ''}`}>Masa służbowa pojazdu</td>
+                            <td className={`text-right py-2 px-2 font-bold ${selOnlySluzbowa ? 'text-red-700' : ''}`}>{sel.own}</td>
+                          </tr>
+                        )}
                         <tr>
-                          <td className="py-2 px-2">Masa hamujaca</td>
+                          <td className="py-2 px-2">Masa hamująca</td>
                           <td className="text-right py-2 px-2 font-bold">{sel.brk}</td>
                         </tr>
                       </tbody>
                     </table>
+
                   </div>
                 </div>
               )}
               {!sel && (
-                <div className="text-center text-green-700 text-base py-8 font-medium">Wybierz pojazd z listy aby wyswietlic szczegoly</div>
+                <div className="text-center text-green-700 text-base py-8 font-medium">Wybierz pojazd z listy, aby wyświetlić szczegóły</div>
               )}
             </>
           ) : isAdmin === 'login' ? (
@@ -426,7 +592,8 @@ export default function App() {
                     <input type="text" placeholder="ID pojazdu (np. 48WEc-062)" value={newVehicle.id} onChange={(e) => setNewVehicle({...newVehicle, id: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm" />
                     <input type="text" placeholder="Numery inv (oddzielone przecinkami)" value={newVehicle.inv} onChange={(e) => setNewVehicle({...newVehicle, inv: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm" />
                     <input type="text" placeholder="Długość (np. 90.53m)" value={newVehicle.len} onChange={(e) => setNewVehicle({...newVehicle, len: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm" />
-                    <input type="text" placeholder="Masa własna (np. 169t)" value={newVehicle.own} onChange={(e) => setNewVehicle({...newVehicle, own: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm" />
+                    <input type="text" placeholder="Masa własna (np. 76t) – zostaw puste, jeśli nie ma na pojeździe" value={newVehicle.wlasna} onChange={(e) => setNewVehicle({...newVehicle, wlasna: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm" />
+                    <input type="text" placeholder="Masa służbowa (np. 169t)" value={newVehicle.own} onChange={(e) => setNewVehicle({...newVehicle, own: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm" />
                     <input type="text" placeholder="Masa hamująca (np. 358t)" value={newVehicle.brk} onChange={(e) => setNewVehicle({...newVehicle, brk: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm" />
                     <input type="text" placeholder="Masa ogólna (np. 201t)" value={newVehicle.tot} onChange={(e) => setNewVehicle({...newVehicle, tot: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm" />
                     <button type="submit" className="w-full flex items-center justify-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold py-2 rounded-lg transition-colors"><Plus size={18} /> Dodaj pojazd</button>

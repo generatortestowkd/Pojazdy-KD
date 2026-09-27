@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { ChevronDown, LogOut, Plus, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ChevronDown, LogOut, Plus, Trash2, Download, Upload } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc, setDoc, getDoc } from 'firebase/firestore';
 
@@ -200,6 +200,9 @@ export default function App() {
   const [lastUpdated, setLastUpdated] = useState(getTodayDate());
   const [lastAddedText, setLastAddedText] = useState('');
   const [lastAddedInput, setLastAddedInput] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [removeMissingOnImport, setRemoveMissingOnImport] = useState(false);
+  const importInputRef = useRef(null);
 
   const [newVehicle, setNewVehicle] = useState({
     id: '',
@@ -438,6 +441,159 @@ export default function App() {
     return (parseFloat(d.tot) - parseFloat(base)).toFixed(1) + 't';
   };
 
+  // Eksport listy pojazdów wraz z parametrami do pliku JSON
+  const handleExportJson = () => {
+    try {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const fileDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+      const pojazdy = Object.keys(vehicles).sort().map((id) => {
+        const d = vehicles[id];
+        return {
+          pojazd: id,
+          numeryInwentarzowe: d.inv || [],
+          dlugosc: d.len || '',
+          masaOgolna: d.tot || '',
+          masaLadunku: hasValue(d.tot) && (hasValue(d.wlasna) || hasValue(d.own)) ? calc(id) : '',
+          masaWlasna: hasValue(d.wlasna) ? d.wlasna : '',
+          masaSluzbowa: d.own || '',
+          masaHamujaca: d.brk || '',
+          dataDodania: d.dateAdded || ''
+        };
+      });
+
+      const exportData = {
+        format: 'pojazdy-kd-v1',
+        nazwa: 'Pojazdy KD – wykaz pojazdów',
+        dataEksportu: `${getTodayDate()} ${pad(now.getHours())}:${pad(now.getMinutes())}`,
+        ostatniaAktualizacja: lastUpdated,
+        liczbaPojazdow: pojazdy.length,
+        pojazdy
+      };
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pojazdy-kd-${fileDate}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert('Błąd eksportu: ' + error.message);
+    }
+  };
+
+  // Import listy pojazdów z pliku JSON (w formacie z eksportu)
+  const handleImportFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch (error) {
+      alert('Nie udało się odczytać pliku. Upewnij się, że to plik JSON z eksportu.');
+      return;
+    }
+
+    const list = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.pojazdy) ? parsed.pojazdy : null);
+    if (!list) {
+      alert('Nieprawidłowy format pliku – brak listy "pojazdy".');
+      return;
+    }
+
+    const toStr = (v) => (v === undefined || v === null ? '' : String(v).trim());
+    const imported = {};
+    const skipped = [];
+    list.forEach((item, idx) => {
+      const id = toStr(item && item.pojazd);
+      let inv = item && item.numeryInwentarzowe;
+      if (typeof inv === 'string') inv = inv.split(',');
+      inv = Array.isArray(inv) ? inv.map(toStr).filter(Boolean) : [];
+      const len = toStr(item && item.dlugosc);
+      if (!id || inv.length === 0 || !len) {
+        skipped.push(id || `pozycja ${idx + 1}`);
+        return;
+      }
+      imported[id] = {
+        inv,
+        len,
+        wlasna: toStr(item.masaWlasna),
+        own: toStr(item.masaSluzbowa),
+        brk: toStr(item.masaHamujaca),
+        tot: toStr(item.masaOgolna),
+        dateAdded: toStr(item.dataDodania) || getTodayDate()
+      };
+    });
+
+    const importedIds = Object.keys(imported);
+    if (importedIds.length === 0) {
+      alert('W pliku nie ma żadnych poprawnych pojazdów.');
+      return;
+    }
+
+    const newIds = importedIds.filter((id) => !vehicles[id]);
+    const updateIds = importedIds.filter((id) => vehicles[id]);
+    const removeIds = removeMissingOnImport ? Object.keys(vehicles).filter((id) => !imported[id]) : [];
+
+    let summary = `Import z pliku: ${file.name}\n\n` +
+      `Nowe pojazdy: ${newIds.length}\n` +
+      `Pojazdy do aktualizacji: ${updateIds.length}\n`;
+    if (removeMissingOnImport) summary += `Pojazdy do USUNIĘCIA (brak w pliku): ${removeIds.length}\n`;
+    if (skipped.length) summary += `Pominięte (niekompletne dane): ${skipped.length} – ${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? '…' : ''}\n`;
+    summary += '\nKontynuować?';
+    if (!window.confirm(summary)) return;
+    if (removeIds.length > 0 && !window.confirm(`Na pewno usunąć ${removeIds.length} pojazdów, których nie ma w pliku? Tej operacji nie można cofnąć.`)) return;
+
+    setImporting(true);
+    try {
+      const snapshot = await getDocs(collection(db, 'vehicles'));
+      const docIdsByVehicle = {};
+      snapshot.forEach((docSnapshot) => {
+        const vid = docSnapshot.data().id;
+        (docIdsByVehicle[vid] = docIdsByVehicle[vid] || []).push(docSnapshot.id);
+      });
+
+      for (const id of importedIds) {
+        const payload = { id, ...imported[id] };
+        const existing = docIdsByVehicle[id] || [];
+        if (existing.length > 0) {
+          for (const docId of existing) {
+            await setDoc(doc(db, 'vehicles', docId), payload);
+          }
+        } else {
+          await addDoc(collection(db, 'vehicles'), payload);
+        }
+      }
+
+      for (const id of removeIds) {
+        for (const docId of (docIdsByVehicle[id] || [])) {
+          await deleteDoc(doc(db, 'vehicles', docId));
+        }
+      }
+
+      const today = getTodayDate();
+      await setDoc(doc(db, 'settings', 'info'), { lastUpdated: today }, { merge: true });
+
+      const updatedVehicles = { ...vehicles, ...imported };
+      removeIds.forEach((id) => { delete updatedVehicles[id]; });
+      setVehicles(updatedVehicles);
+      setLastUpdated(today);
+      if (removeIds.includes(selectedVehicle)) setSelectedVehicle('');
+
+      alert(`Import zakończony!\nDodano: ${newIds.length}\nZaktualizowano: ${updateIds.length}` +
+        (removeMissingOnImport ? `\nUsunięto: ${removeIds.length}` : ''));
+    } catch (error) {
+      alert('Błąd importu: ' + error.message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const sel = vehicles[selectedVehicle];
   const selHasWlasna = sel ? hasValue(sel.wlasna) : false;
   const selHasSluzbowa = sel ? hasValue(sel.own) : false;
@@ -451,6 +607,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-800 via-green-700 to-green-900 p-3 sm:p-6">
       <div className="max-w-2xl mx-auto">
+        <p className="text-center text-xs sm:text-sm text-yellow-300 font-semibold mb-2">Autor: Grzegorz Rejszel (kier. poc. 186)</p>
         <div className="bg-white/95 backdrop-blur-lg rounded-2xl shadow-2xl p-4 sm:p-6 border-4 border-yellow-400">
           {!isAdmin ? (
             <>
@@ -606,6 +763,22 @@ export default function App() {
                     <textarea placeholder="np. 48WEc-062 do 48WEc-063" value={lastAddedInput} onChange={(e) => setLastAddedInput(e.target.value)} rows={2} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm" />
                     <button type="submit" className="w-full bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold py-2 rounded-lg transition-colors">Zapisz</button>
                   </form>
+                </div>
+
+                <div className="bg-green-50 rounded-xl p-4 border-2 border-green-600">
+                  <h3 className="text-xl font-bold text-green-800 mb-2">Eksport i import danych</h3>
+                  <p className="text-sm text-green-700 mb-3">Pobierz listę wszystkich pojazdów ({Object.keys(vehicles).length}) wraz z parametrami do pliku JSON.</p>
+                  <button onClick={handleExportJson} disabled={importing} className="w-full flex items-center justify-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold py-2 rounded-lg transition-colors disabled:opacity-50"><Download size={18} /> Eksportuj do JSON</button>
+
+                  <div className="border-t-2 border-green-300 my-4"></div>
+
+                  <p className="text-sm text-green-700 mb-2">Wczytaj pojazdy z pliku JSON (w formacie z eksportu). Pojazdy z pliku zostaną dodane, a istniejące – zaktualizowane.</p>
+                  <label className="flex items-start gap-2 text-sm text-red-700 font-semibold mb-3 cursor-pointer">
+                    <input type="checkbox" checked={removeMissingOnImport} onChange={(e) => setRemoveMissingOnImport(e.target.checked)} className="mt-1" />
+                    <span>Usuń z bazy pojazdy, których nie ma w pliku (zastąp całą listę)</span>
+                  </label>
+                  <input ref={importInputRef} type="file" accept=".json,application/json" onChange={handleImportFile} className="hidden" />
+                  <button onClick={() => importInputRef.current && importInputRef.current.click()} disabled={importing} className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-800 text-white font-bold py-2 rounded-lg transition-colors disabled:opacity-50"><Upload size={18} /> {importing ? 'Importowanie…' : 'Importuj z JSON'}</button>
                 </div>
 
                 <div className="bg-green-50 rounded-xl p-4 border-2 border-green-600">

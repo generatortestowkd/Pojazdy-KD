@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDown, LogOut, Plus, Trash2, Download, Upload } from 'lucide-react';
+import { ChevronDown, LogOut, Plus, Trash2, Download, Upload, Pencil, Save, X } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc, setDoc, getDoc } from 'firebase/firestore';
 
@@ -201,6 +201,9 @@ export default function App() {
   const [lastAddedText, setLastAddedText] = useState('');
   const [lastAddedInput, setLastAddedInput] = useState('');
   const [importing, setImporting] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ id: '', inv: '', len: '', wlasna: '', own: '', brk: '', tot: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
   const [removeMissingOnImport, setRemoveMissingOnImport] = useState(false);
   const importInputRef = useRef(null);
 
@@ -411,6 +414,87 @@ export default function App() {
       alert('Zapisano informację o ostatnio dodanych pojazdach!');
     } catch (error) {
       alert('Błąd: ' + error.message);
+    }
+  };
+
+  // ===== EDYCJA ISTNIEJĄCEGO POJAZDU =====
+  const startEdit = (vehicleId) => {
+    const d = vehicles[vehicleId];
+    if (!d) return;
+    setEditingId(vehicleId);
+    setEditForm({
+      id: vehicleId,
+      inv: (d.inv || []).join(', '),
+      len: d.len || '',
+      wlasna: d.wlasna || '',
+      own: d.own || '',
+      brk: d.brk || '',
+      tot: d.tot || ''
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({ id: '', inv: '', len: '', wlasna: '', own: '', brk: '', tot: '' });
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    const oldId = editingId;
+    const newId = editForm.id.trim();
+    const invArray = editForm.inv.split(',').map(n => n.trim()).filter(Boolean);
+
+    if (!newId || invArray.length === 0 || !editForm.len.trim()) {
+      alert('Wypełnij wymagane pola: ID pojazdu, numery inwentarzowe i długość!');
+      return;
+    }
+    if (newId !== oldId && vehicles[newId]) {
+      alert(`Pojazd ${newId} już istnieje na liście. Wybierz inne oznaczenie.`);
+      return;
+    }
+
+    const updatedData = {
+      inv: invArray,
+      len: editForm.len.trim(),
+      wlasna: editForm.wlasna.trim(),
+      own: editForm.own.trim(),
+      brk: editForm.brk.trim(),
+      tot: editForm.tot.trim(),
+      dateAdded: (vehicles[oldId] && vehicles[oldId].dateAdded) || getTodayDate()
+    };
+
+    setSavingEdit(true);
+    try {
+      const snapshot = await getDocs(collection(db, 'vehicles'));
+      const docIds = [];
+      snapshot.forEach((docSnapshot) => {
+        if (docSnapshot.data().id === oldId) docIds.push(docSnapshot.id);
+      });
+
+      if (docIds.length > 0) {
+        for (const docId of docIds) {
+          await setDoc(doc(db, 'vehicles', docId), { id: newId, ...updatedData });
+        }
+      } else {
+        await addDoc(collection(db, 'vehicles'), { id: newId, ...updatedData });
+      }
+
+      const today = getTodayDate();
+      await setDoc(doc(db, 'settings', 'info'), { lastUpdated: today }, { merge: true });
+
+      const updatedVehicles = { ...vehicles };
+      if (newId !== oldId) delete updatedVehicles[oldId];
+      updatedVehicles[newId] = updatedData;
+      setVehicles(updatedVehicles);
+      setLastUpdated(today);
+      if (selectedVehicle === oldId) setSelectedVehicle(newId);
+
+      cancelEdit();
+      alert(`Zapisano zmiany w pojeździe ${newId}.`);
+    } catch (error) {
+      alert('Błąd zapisu: ' + error.message);
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -783,11 +867,46 @@ export default function App() {
 
                 <div className="bg-green-50 rounded-xl p-4 border-2 border-green-600">
                   <h3 className="text-xl font-bold text-green-800 mb-4">Lista pojazdów ({Object.keys(vehicles).length})</h3>
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                  <div className={`space-y-2 ${editingId ? '' : 'max-h-96 overflow-y-auto'}`}>
                     {Object.keys(vehicles).sort().map(vehicleId => (
-                      <div key={vehicleId} className="flex justify-between items-center bg-yellow-100 px-3 py-2 rounded-lg border border-yellow-400">
-                        <span className="font-bold text-green-900">{vehicleId}</span>
-                        <button onClick={() => handleDeleteVehicle(vehicleId)} className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded transition-colors flex items-center gap-1 text-sm font-bold"><Trash2 size={16} /> Usuń</button>
+                      <div key={vehicleId} className={`rounded-lg border ${editingId === vehicleId ? 'bg-white border-2 border-green-700' : 'bg-yellow-100 border-yellow-400'}`}>
+                        <div className="flex justify-between items-center gap-2 px-3 py-2">
+                          <span className="font-bold text-green-900">{vehicleId}</span>
+                          <div className="flex gap-2">
+                            <button onClick={() => (editingId === vehicleId ? cancelEdit() : startEdit(vehicleId))} disabled={savingEdit} className="bg-green-700 hover:bg-green-800 text-white px-3 py-1 rounded transition-colors flex items-center gap-1 text-sm font-bold disabled:opacity-50"><Pencil size={16} /> {editingId === vehicleId ? 'Zamknij' : 'Edytuj'}</button>
+                            <button onClick={() => handleDeleteVehicle(vehicleId)} disabled={savingEdit} className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded transition-colors flex items-center gap-1 text-sm font-bold disabled:opacity-50"><Trash2 size={16} /> Usuń</button>
+                          </div>
+                        </div>
+                        {editingId === vehicleId && (
+                          <form onSubmit={handleSaveEdit} className="space-y-2 px-3 pb-3 border-t border-green-300 pt-3">
+                            <label className="block text-xs font-semibold text-green-800">ID pojazdu *
+                              <input type="text" placeholder="np. 48WEc-062" value={editForm.id} onChange={(e) => setEditForm({...editForm, id: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm bg-white" />
+                            </label>
+                            <label className="block text-xs font-semibold text-green-800">Numery inwentarzowe * (oddzielone przecinkami)
+                              <input type="text" placeholder="np. 94512142087-7, 94512142088-5" value={editForm.inv} onChange={(e) => setEditForm({...editForm, inv: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm bg-white" />
+                            </label>
+                            <label className="block text-xs font-semibold text-green-800">Długość *
+                              <input type="text" placeholder="np. 90.53m" value={editForm.len} onChange={(e) => setEditForm({...editForm, len: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm bg-white" />
+                            </label>
+                            <label className="block text-xs font-semibold text-green-800">Masa własna (puste, jeśli nie ma na pojeździe)
+                              <input type="text" placeholder="np. 76t" value={editForm.wlasna} onChange={(e) => setEditForm({...editForm, wlasna: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm bg-white" />
+                            </label>
+                            <label className="block text-xs font-semibold text-green-800">Masa służbowa
+                              <input type="text" placeholder="np. 169t" value={editForm.own} onChange={(e) => setEditForm({...editForm, own: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm bg-white" />
+                            </label>
+                            <label className="block text-xs font-semibold text-green-800">Masa hamująca
+                              <input type="text" placeholder="np. 358t" value={editForm.brk} onChange={(e) => setEditForm({...editForm, brk: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm bg-white" />
+                            </label>
+                            <label className="block text-xs font-semibold text-green-800">Masa ogólna
+                              <input type="text" placeholder="np. 201t" value={editForm.tot} onChange={(e) => setEditForm({...editForm, tot: e.target.value})} className="w-full px-3 py-2 border-2 border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm bg-white" />
+                            </label>
+                            <p className="text-xs text-green-700">* pola wymagane</p>
+                            <div className="flex gap-2">
+                              <button type="submit" disabled={savingEdit} className="flex-1 flex items-center justify-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold py-2 rounded-lg transition-colors disabled:opacity-50"><Save size={18} /> {savingEdit ? 'Zapisywanie…' : 'Zapisz zmiany'}</button>
+                              <button type="button" onClick={cancelEdit} disabled={savingEdit} className="flex-1 flex items-center justify-center gap-2 bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 rounded-lg transition-colors disabled:opacity-50"><X size={18} /> Anuluj</button>
+                            </div>
+                          </form>
+                        )}
                       </div>
                     ))}
                   </div>
